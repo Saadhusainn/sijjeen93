@@ -33,10 +33,12 @@ jobs:
             # Create folder for extraction
             mkdir -p "$FOLDER_NAME"
             
-            # Download ZIP file with retry and proper error handling
+            # Download ZIP file with retry for large files
             ZIP_FILE="temp_download.zip"
             echo "Downloading ZIP file..."
-            if curl -L --fail --progress-bar "${{ github.event.client_payload.pdf_url }}" -o "$ZIP_FILE"; then
+            
+            # Use wget instead of curl for better large file handling
+            if wget --tries=3 --timeout=60 -O "$ZIP_FILE" "${{ github.event.client_payload.pdf_url }}"; then
               echo "✓ ZIP downloaded successfully"
               ZIP_SIZE=$(ls -lh "$ZIP_FILE" | cut -d ' ' -f 5)
               echo "File size: $ZIP_SIZE"
@@ -62,7 +64,7 @@ jobs:
                 exit 1
               fi
             else
-              echo "✗ Failed to download ZIP file"
+              echo "✗ Failed to download ZIP file after 3 attempts"
               exit 1
             fi
           else
@@ -75,16 +77,18 @@ jobs:
             echo "PDF URL: ${{ github.event.client_payload.pdf_url }}"
             echo "Saving as: $PDF_FILENAME"
             
-            # Download PDF with retry and proper error handling
+            # Download PDF with retry and resume support for large files
             echo "Downloading PDF file..."
-            if curl -L --fail --progress-bar "${{ github.event.client_payload.pdf_url }}" -o "$PDF_FILENAME"; then
+            
+            # Use wget with retry and continue support
+            if wget --tries=3 --timeout=120 --continue -O "$PDF_FILENAME" "${{ github.event.client_payload.pdf_url }}"; then
               echo "✓ PDF downloaded successfully"
               PDF_SIZE=$(ls -lh "$PDF_FILENAME" | cut -d ' ' -f 5)
               echo "File size: $PDF_SIZE"
               
               # Verify file is not empty and is a valid PDF
-              if [ -s "$PDF_FILENAME" ]; then
-                echo "✓ File verification passed"
+              if [ -s "$PDF_FILENAME" ] && file "$PDF_FILENAME" | grep -q "PDF"; then
+                echo "✓ File verification passed - Valid PDF"
                 
                 git add .
                 git commit -m "Add PDF: $CLEAN_FILENAME"
@@ -93,11 +97,13 @@ jobs:
                 
                 echo "✓ PDF upload completed successfully"
               else
-                echo "✗ Downloaded file is empty or corrupted"
+                echo "✗ Downloaded file is empty, corrupted, or not a PDF"
+                # Check what type of file it actually is
+                file "$PDF_FILENAME"
                 exit 1
               fi
             else
-              echo "✗ Failed to download PDF file"
+              echo "✗ Failed to download PDF file after 3 attempts"
               exit 1
             fi
           fi
